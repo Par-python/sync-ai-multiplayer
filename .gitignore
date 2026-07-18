@@ -1,0 +1,4 @@
+.syncroom/
+bin/
+*.db
+*.db-*
