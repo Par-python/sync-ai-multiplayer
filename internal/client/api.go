@@ -21,6 +21,28 @@ type API struct {
 	HTTP    *http.Client
 }
 
+// Enrollment is the one-time response returned after a participant joins a room.
+type Enrollment struct {
+	Participant domain.Participant `json:"participant"`
+	Token       string             `json:"token"`
+}
+
+// Join enrolls a participant with a room join code. The returned raw token
+// must be stored locally and is intentionally not returned by any other API.
+func Join(ctx context.Context, baseURL, joinCode, name, agent string) (Enrollment, error) {
+	api := &API{BaseURL: baseURL}
+	var enrollment Enrollment
+	if err := api.request(ctx, http.MethodPost, "/v1/rooms/"+joinCode+"/participants", map[string]string{
+		"name": name, "agent": agent,
+	}, &enrollment); err != nil {
+		return Enrollment{}, err
+	}
+	if enrollment.Participant.ID == "" || enrollment.Token == "" {
+		return Enrollment{}, fmt.Errorf("coordinator returned incomplete enrollment")
+	}
+	return enrollment, nil
+}
+
 // Snapshot fetches the current room projection using the participant token.
 func (a *API) Snapshot(ctx context.Context, roomID string) (domain.Snapshot, error) {
 	var snapshot domain.Snapshot
@@ -43,7 +65,9 @@ func (a *API) request(ctx context.Context, method, path string, in, out any) err
 	if err != nil {
 		return err
 	}
-	request.Header.Set("Authorization", "Bearer "+a.Token)
+	if a.Token != "" {
+		request.Header.Set("Authorization", "Bearer "+a.Token)
+	}
 	request.Header.Set("Accept", "application/json")
 	if in != nil {
 		request.Header.Set("Content-Type", "application/json")
