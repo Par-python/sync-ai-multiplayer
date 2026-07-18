@@ -116,6 +116,16 @@ type JoinRoomInput struct {
 	TokenHash string
 }
 
+// PublishIntentInput is the mutable intent projection for a participant.
+type PublishIntentInput struct {
+	Task, Objective string
+	ExpectedPaths   []string
+	Status          domain.IntentStatus
+}
+
+// PublishDecisionInput is a room-wide decision authored by one participant.
+type PublishDecisionInput struct{ Title, Body string }
+
 // JoinRoom locates a room by its join code, inserts a participant, and
 // appends the participant.joined event.
 func (s *Store) JoinRoom(ctx context.Context, joinCode string, in JoinRoomInput) (domain.Participant, error) {
@@ -162,6 +172,57 @@ func (s *Store) JoinRoom(ctx context.Context, joinCode string, in JoinRoomInput)
 		return domain.Participant{}, err
 	}
 	return p, nil
+}
+
+// PublishIntent upserts a participant's current intent and appends an event.
+func (s *Store) PublishIntent(ctx context.Context, roomID, participantID string, in PublishIntentInput) (domain.Intent, error) {
+	if strings.TrimSpace(in.Task) == "" || len(in.ExpectedPaths) > 100 {
+		return domain.Intent{}, fmt.Errorf("store: task is required and at most 100 paths are allowed")
+	}
+	paths, err := json.Marshal(in.ExpectedPaths)
+	if err != nil {
+		return domain.Intent{}, err
+	}
+	intent := domain.Intent{ID: newID("intent"), RoomID: roomID, ParticipantID: participantID, Task: in.Task, Objective: in.Objective, ExpectedPaths: in.ExpectedPaths, Status: in.Status, UpdatedAt: s.now()}
+	payload, err := json.Marshal(intent)
+	if err != nil {
+		return domain.Intent{}, err
+	}
+	err = s.inTx(ctx, func(tx *sql.Tx) error {
+		if err := ensureParticipantTx(ctx, tx, roomID, participantID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM intents WHERE room_id = ? AND participant_id = ?`, roomID, participantID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO intents (id, room_id, participant_id, task, objective, expected_paths, status, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, intent.ID, roomID, participantID, intent.Task, intent.Objective, paths, intent.Status, intent.UpdatedAt.Format(time.RFC3339Nano)); err != nil {
+			return err
+		}
+		return appendEventTx(ctx, tx, roomID, domain.EventIntentPublished, payload, s.now())
+	})
+	return intent, err
+}
+
+// PublishDecision persists a room-wide decision and appends an event.
+func (s *Store) PublishDecision(ctx context.Context, roomID, participantID string, in PublishDecisionInput) (domain.Decision, error) {
+	if strings.TrimSpace(in.Title) == "" || strings.TrimSpace(in.Body) == "" {
+		return domain.Decision{}, fmt.Errorf("store: decision title and body are required")
+	}
+	decision := domain.Decision{ID: newID("decision"), RoomID: roomID, ParticipantID: participantID, Title: in.Title, Body: in.Body, CreatedAt: s.now()}
+	payload, err := json.Marshal(decision)
+	if err != nil {
+		return domain.Decision{}, err
+	}
+	err = s.inTx(ctx, func(tx *sql.Tx) error {
+		if err := ensureParticipantTx(ctx, tx, roomID, participantID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO decisions (id, room_id, participant_id, title, body, created_at) VALUES (?, ?, ?, ?, ?, ?)`, decision.ID, roomID, participantID, decision.Title, decision.Body, decision.CreatedAt.Format(time.RFC3339Nano)); err != nil {
+			return err
+		}
+		return appendEventTx(ctx, tx, roomID, domain.EventDecisionAdded, payload, s.now())
+	})
+	return decision, err
 }
 
 // AppendEvent writes an event without an accompanying materialized-state
@@ -278,18 +339,89 @@ func (s *Store) RoomSnapshot(ctx context.Context, roomID string) (domain.Snapsho
 		Room:            room,
 		Participants:    []domain.Participant{},
 		Intents:         []domain.Intent{},
+		Decisions:       []domain.Decision{},
+		Overlaps:        []domain.Overlap{},
 		Checkpoints:     []domain.Checkpoint{},
 		IntegrationRuns: []domain.IntegrationRun{},
 	}
 	if err := s.loadParticipants(ctx, roomID, &snap); err != nil {
 		return domain.Snapshot{}, err
 	}
+	if err := s.loadIntents(ctx, roomID, &snap); err != nil {
+		return domain.Snapshot{}, err
+	}
+	if err := s.loadDecisions(ctx, roomID, &snap); err != nil {
+		return domain.Snapshot{}, err
+	}
+	snap.Overlaps = calculateOverlaps(snap.Intents)
 	if err := s.db.QueryRowContext(ctx,
 		`SELECT COALESCE(MAX(sequence), 0) FROM events WHERE room_id = ?`, roomID).
 		Scan(&snap.LatestSequence); err != nil {
 		return domain.Snapshot{}, err
 	}
 	return snap, nil
+}
+
+func (s *Store) loadIntents(ctx context.Context, roomID string, snap *domain.Snapshot) error {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, room_id, participant_id, task, objective, expected_paths, status, updated_at FROM intents WHERE room_id = ? ORDER BY updated_at ASC`, roomID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var intent domain.Intent
+		var paths, updated string
+		if err := rows.Scan(&intent.ID, &intent.RoomID, &intent.ParticipantID, &intent.Task, &intent.Objective, &paths, &intent.Status, &updated); err != nil {
+			return err
+		}
+		if err := json.Unmarshal([]byte(paths), &intent.ExpectedPaths); err != nil {
+			return err
+		}
+		intent.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updated)
+		snap.Intents = append(snap.Intents, intent)
+	}
+	return rows.Err()
+}
+
+func (s *Store) loadDecisions(ctx context.Context, roomID string, snap *domain.Snapshot) error {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, room_id, participant_id, title, body, created_at FROM decisions WHERE room_id = ? ORDER BY created_at ASC`, roomID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var decision domain.Decision
+		var created string
+		if err := rows.Scan(&decision.ID, &decision.RoomID, &decision.ParticipantID, &decision.Title, &decision.Body, &created); err != nil {
+			return err
+		}
+		decision.CreatedAt, _ = time.Parse(time.RFC3339Nano, created)
+		snap.Decisions = append(snap.Decisions, decision)
+	}
+	return rows.Err()
+}
+
+func calculateOverlaps(intents []domain.Intent) []domain.Overlap {
+	var overlaps []domain.Overlap
+	for left := 0; left < len(intents); left++ {
+		for right := left + 1; right < len(intents); right++ {
+			for _, overlap := range domain.ClassifyOverlap(intents[left].ExpectedPaths, intents[right].ExpectedPaths) {
+				overlaps = append(overlaps, domain.Overlap{ParticipantAID: intents[left].ParticipantID, ParticipantBID: intents[right].ParticipantID, PathA: overlap.PathA, PathB: overlap.PathB, Severity: overlap.Severity})
+			}
+		}
+	}
+	return overlaps
+}
+
+func ensureParticipantTx(ctx context.Context, tx *sql.Tx, roomID, participantID string) error {
+	var found int
+	if err := tx.QueryRowContext(ctx, `SELECT 1 FROM participants WHERE id = ? AND room_id = ?`, participantID, roomID).Scan(&found); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *Store) selectRoom(ctx context.Context, where string, arg any) (domain.Room, error) {

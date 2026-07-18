@@ -105,6 +105,36 @@ func TestSSEReplaysJoinedEvent(t *testing.T) {
 	}
 }
 
+func TestIntentDecisionAndOverlap(t *testing.T) {
+	api := newTestServer(t)
+	room := doJSON(t, api.Client(), http.MethodPost, api.URL+"/v1/rooms", "", map[string]string{
+		"name": "Room", "repo": "https://example.test/repo.git", "defaultBranch": "main",
+	})
+	roomID := stringField(t, room, "id")
+	joinCode := stringField(t, room, "joinCode")
+	alexi := doJSON(t, api.Client(), http.MethodPost, api.URL+"/v1/rooms/"+joinCode+"/participants", "", map[string]string{"name": "Alexi", "agent": "Codex"})
+	abby := doJSON(t, api.Client(), http.MethodPost, api.URL+"/v1/rooms/"+joinCode+"/participants", "", map[string]string{"name": "Abby", "agent": "Claude Code"})
+
+	doJSON(t, api.Client(), http.MethodPost, api.URL+"/v1/rooms/"+roomID+"/intents", stringField(t, alexi, "token"), map[string]any{
+		"task": "Authentication", "expectedPaths": []string{"packages/auth"}, "status": "executing",
+	})
+	doJSON(t, api.Client(), http.MethodPost, api.URL+"/v1/rooms/"+roomID+"/intents", stringField(t, abby, "token"), map[string]any{
+		"task": "Onboarding", "expectedPaths": []string{"packages/auth/client.go"}, "status": "planning",
+	})
+	doJSON(t, api.Client(), http.MethodPost, api.URL+"/v1/rooms/"+roomID+"/decisions", stringField(t, alexi, "token"), map[string]string{
+		"title": "Callback route", "body": "Use /auth/callback.",
+	})
+
+	snapshot := doJSON(t, api.Client(), http.MethodGet, api.URL+"/v1/rooms/"+roomID+"/snapshot", stringField(t, abby, "token"), nil)
+	if decisions, ok := snapshot["decisions"].([]any); !ok || len(decisions) != 1 {
+		t.Fatalf("decisions=%#v", snapshot["decisions"])
+	}
+	overlaps, ok := snapshot["overlaps"].([]any)
+	if !ok || len(overlaps) != 1 {
+		t.Fatalf("overlaps=%#v", snapshot["overlaps"])
+	}
+}
+
 func newTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	db, err := store.Open(filepath.Join(t.TempDir(), "syncroom.db"))

@@ -66,6 +66,25 @@ type Intent struct {
 	UpdatedAt     time.Time    `json:"updatedAt"`
 }
 
+// Decision is a room-wide product or technical choice published by a participant.
+type Decision struct {
+	ID            string    `json:"id"`
+	RoomID        string    `json:"roomId"`
+	ParticipantID string    `json:"participantId"`
+	Title         string    `json:"title"`
+	Body          string    `json:"body"`
+	CreatedAt     time.Time `json:"createdAt"`
+}
+
+// Overlap identifies a potential collision between two participant intents.
+type Overlap struct {
+	ParticipantAID string          `json:"participantAId"`
+	ParticipantBID string          `json:"participantBId"`
+	PathA          string          `json:"pathA"`
+	PathB          string          `json:"pathB"`
+	Severity       OverlapSeverity `json:"severity"`
+}
+
 // Checkpoint records a validated, pushed Git checkpoint published by a
 // participant. Syncroom never receives the source files themselves.
 type Checkpoint struct {
@@ -113,6 +132,8 @@ type Snapshot struct {
 	Room            Room             `json:"room"`
 	Participants    []Participant    `json:"participants"`
 	Intents         []Intent         `json:"intents"`
+	Decisions       []Decision       `json:"decisions"`
+	Overlaps        []Overlap        `json:"overlaps"`
 	Checkpoints     []Checkpoint     `json:"checkpoints"`
 	IntegrationRuns []IntegrationRun `json:"integrationRuns"`
 	LatestSequence  int64            `json:"latestSequence"`

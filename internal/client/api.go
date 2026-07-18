@@ -52,6 +52,20 @@ func (a *API) Snapshot(ctx context.Context, roomID string) (domain.Snapshot, err
 	return snapshot, nil
 }
 
+// PublishIntent updates the current participant's declared work scope.
+func (a *API) PublishIntent(ctx context.Context, roomID, task, objective string, paths []string, status domain.IntentStatus) (domain.Intent, error) {
+	var intent domain.Intent
+	err := a.request(ctx, http.MethodPost, "/v1/rooms/"+roomID+"/intents", map[string]any{"task": task, "objective": objective, "expectedPaths": paths, "status": status}, &intent)
+	return intent, err
+}
+
+// PublishDecision adds a room-wide technical or product decision.
+func (a *API) PublishDecision(ctx context.Context, roomID, title, body string) (domain.Decision, error) {
+	var decision domain.Decision
+	err := a.request(ctx, http.MethodPost, "/v1/rooms/"+roomID+"/decisions", map[string]string{"title": title, "body": body}, &decision)
+	return decision, err
+}
+
 func (a *API) request(ctx context.Context, method, path string, in, out any) error {
 	var body io.Reader
 	if in != nil {

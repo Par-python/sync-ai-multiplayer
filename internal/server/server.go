@@ -59,7 +59,62 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	if len(parts) == 4 && parts[0] == "v1" && parts[1] == "rooms" && r.Method == http.MethodPost {
+		roomID := parts[2]
+		participant, ok := s.authorizeRoom(w, r, roomID)
+		if !ok {
+			return
+		}
+		switch parts[3] {
+		case "intents":
+			s.publishIntent(w, r, roomID, participant)
+		case "decisions":
+			s.publishDecision(w, r, roomID, participant)
+		default:
+			writeError(w, http.StatusNotFound, "not found")
+		}
+		return
+	}
 	writeError(w, http.StatusNotFound, "not found")
+}
+
+func (s *Server) publishIntent(w http.ResponseWriter, r *http.Request, roomID string, participant domain.Participant) {
+	var input struct {
+		Task          string              `json:"task"`
+		Objective     string              `json:"objective"`
+		ExpectedPaths []string            `json:"expectedPaths"`
+		Status        domain.IntentStatus `json:"status"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	if input.Status == "" {
+		input.Status = domain.IntentStatusPlanning
+	}
+	intent, err := s.store.PublishIntent(r.Context(), roomID, participant.ID, store.PublishIntentInput{Task: input.Task, Objective: input.Objective, ExpectedPaths: input.ExpectedPaths, Status: input.Status})
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	s.publishLatest(r.Context(), roomID)
+	writeJSON(w, http.StatusCreated, intent)
+}
+
+func (s *Server) publishDecision(w http.ResponseWriter, r *http.Request, roomID string, participant domain.Participant) {
+	var input struct {
+		Title string `json:"title"`
+		Body  string `json:"body"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	decision, err := s.store.PublishDecision(r.Context(), roomID, participant.ID, store.PublishDecisionInput{Title: input.Title, Body: input.Body})
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	s.publishLatest(r.Context(), roomID)
+	writeJSON(w, http.StatusCreated, decision)
 }
 
 func (s *Server) createRoom(w http.ResponseWriter, r *http.Request) {

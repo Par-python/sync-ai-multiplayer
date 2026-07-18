@@ -43,10 +43,26 @@ func Write(root, participantID string, snapshot domain.Snapshot) error {
 	if err := writeAtomic(filepath.Join(dir, "context.md"), context.String()); err != nil {
 		return err
 	}
-	if err := writeAtomic(filepath.Join(dir, "decisions.md"), "# Syncroom Shared Decisions\n\nNo shared decisions yet.\n"); err != nil {
+	var decisions strings.Builder
+	decisions.WriteString("# Syncroom Shared Decisions\n\n")
+	if len(snapshot.Decisions) == 0 {
+		decisions.WriteString("No shared decisions yet.\n")
+	}
+	for index, decision := range snapshot.Decisions {
+		fmt.Fprintf(&decisions, "%d. %s\n\n%s\n\n", index+1, decision.Title, decision.Body)
+	}
+	if err := writeAtomic(filepath.Join(dir, "decisions.md"), decisions.String()); err != nil {
 		return err
 	}
-	return writeAtomic(filepath.Join(dir, "updates.md"), "# Syncroom Updates\n\nNo routed updates yet.\n")
+	var updates strings.Builder
+	updates.WriteString("# Syncroom Updates\n\n")
+	if len(snapshot.Overlaps) == 0 {
+		updates.WriteString("No routed updates yet.\n")
+	}
+	for _, overlap := range snapshot.Overlaps {
+		fmt.Fprintf(&updates, "- %s overlap between %s and %s: %s / %s\n", overlap.Severity, participantByID(snapshot.Participants, overlap.ParticipantAID).Name, participantByID(snapshot.Participants, overlap.ParticipantBID).Name, overlap.PathA, overlap.PathB)
+	}
+	return writeAtomic(filepath.Join(dir, "updates.md"), updates.String())
 }
 
 func participantByID(participants []domain.Participant, id string) domain.Participant {
