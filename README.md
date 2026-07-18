@@ -19,7 +19,7 @@ Use this repository as the shared demo repository, or replace its URL with anoth
 ```bash
 git clone https://github.com/Par-python/sync-ai-multiplayer.git
 cd sync-ai-multiplayer
-go build -o ./bin/syncroom ./cmd/syncroom
+make build
 
 ./bin/syncroom room create \
   --server https://next-mandrill-528.convex.site \
@@ -44,10 +44,10 @@ git switch -c syncroom/alexi/auth
   --name Alexi \
   --agent Codex
 
-./bin/syncroom watch
+make watch
 ```
 
-Leave `watch` running in its own terminal. In another terminal in the same clone, publish an intent:
+`make watch` builds Syncroom and keeps context synchronized in the same terminal. Use another terminal only when you want to run a separate command such as publishing an intent:
 
 ```bash
 ./bin/syncroom intent \
@@ -64,7 +64,7 @@ Clone, build, and create a separate branch:
 ```bash
 git clone https://github.com/Par-python/sync-ai-multiplayer.git
 cd sync-ai-multiplayer
-go build -o ./bin/syncroom ./cmd/syncroom
+make build
 git switch -c syncroom/abby/onboarding
 ```
 
@@ -77,7 +77,7 @@ Attach to Laptop A's room, then leave the watcher running:
   --name Abby \
   --agent "Claude Code"
 
-./bin/syncroom watch
+make watch
 ```
 
 Publish deliberately overlapping work:
@@ -103,9 +103,7 @@ On either laptop:
 After the next watcher poll (about two seconds), inspect the generated files on either laptop:
 
 ```bash
-cat .syncroom/context.md
-cat .syncroom/decisions.md
-cat .syncroom/updates.md
+make shared
 ```
 
 The files show both participants, their declared tasks, the shared decision, and the expected-path overlap. In each coding-agent session, add this standing instruction:
