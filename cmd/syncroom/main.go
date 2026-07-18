@@ -4,15 +4,13 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"net/http"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/syncroom/syncroom/internal/cli"
+	"github.com/syncroom/syncroom/internal/client"
 	"github.com/syncroom/syncroom/internal/domain"
-	"github.com/syncroom/syncroom/internal/server"
-	"github.com/syncroom/syncroom/internal/store"
 )
 
 func main() {
@@ -28,8 +26,6 @@ func run(args []string) error {
 		return fmt.Errorf("missing command")
 	}
 	switch args[0] {
-	case "serve":
-		return serve(args[1:])
 	case "room":
 		return room(args[1:])
 	case "attach":
@@ -48,27 +44,12 @@ func run(args []string) error {
 	}
 }
 
-func serve(args []string) error {
-	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
-	data := fs.String("data", "syncroom.db", "SQLite database path")
-	listen := fs.String("listen", ":8080", "HTTP listen address")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	db, err := store.Open(*data)
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-	fmt.Printf("Syncroom coordinator listening on %s\n", *listen)
-	return http.ListenAndServe(*listen, server.New(db))
-}
 func room(args []string) error {
 	if len(args) == 0 || args[0] != "create" {
-		return fmt.Errorf("usage: syncroom room create --data DB --name NAME --repo URL --default-branch main")
+		return fmt.Errorf("usage: syncroom room create --server CONVEX_SITE_URL --name NAME --repo URL --default-branch main")
 	}
 	fs := flag.NewFlagSet("room create", flag.ContinueOnError)
-	data := fs.String("data", "syncroom.db", "SQLite database path")
+	serverURL := fs.String("server", "", "Convex site URL")
 	name := fs.String("name", "", "room name")
 	repo := fs.String("repo", "", "Git remote URL")
 	branch := fs.String("default-branch", "main", "protected branch")
@@ -76,12 +57,7 @@ func room(args []string) error {
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
-	db, err := store.Open(*data)
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-	created, err := db.CreateRoom(context.Background(), store.CreateRoomInput{Name: *name, Repo: *repo, DefaultBranch: *branch, CheckCommand: *check})
+	created, err := client.CreateRoom(context.Background(), *serverURL, *name, *repo, *branch, *check)
 	if err != nil {
 		return err
 	}
@@ -90,7 +66,7 @@ func room(args []string) error {
 }
 func attach(args []string) error {
 	fs := flag.NewFlagSet("attach", flag.ContinueOnError)
-	serverURL := fs.String("server", "", "coordinator URL")
+	serverURL := fs.String("server", "", "Convex site URL")
 	code := fs.String("room", "", "room join code")
 	name := fs.String("name", "", "participant name")
 	agent := fs.String("agent", "", "agent label")
@@ -132,5 +108,5 @@ func decision(args []string) error {
 	return cli.PublishDecision(context.Background(), ".", *title, *body)
 }
 func printUsage() {
-	fmt.Fprintln(os.Stdout, "usage: syncroom <serve|room create|attach|watch|intent|decision add> [flags]")
+	fmt.Fprintln(os.Stdout, "usage: syncroom <room create|attach|watch|intent|decision add> [flags]")
 }

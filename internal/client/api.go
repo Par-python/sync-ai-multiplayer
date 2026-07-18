@@ -27,15 +27,24 @@ type Enrollment struct {
 	Token       string             `json:"token"`
 }
 
+func CreateRoom(ctx context.Context, baseURL, name, repo, branch, check string) (domain.Room, error) {
+	var room domain.Room
+	err := (&API{BaseURL: baseURL}).request(ctx, http.MethodPost, "/rooms", map[string]string{"name": name, "repo": repo, "defaultBranch": branch, "checkCommand": check}, &room)
+	return room, err
+}
+
 // Join enrolls a participant with a room join code. The returned raw token
 // must be stored locally and is intentionally not returned by any other API.
 func Join(ctx context.Context, baseURL, joinCode, name, agent string) (Enrollment, error) {
 	api := &API{BaseURL: baseURL}
 	var enrollment Enrollment
-	if err := api.request(ctx, http.MethodPost, "/v1/rooms/"+joinCode+"/participants", map[string]string{
+	input := map[string]string{
 		"name": name, "agent": agent,
-	}, &enrollment); err != nil {
-		return Enrollment{}, err
+	}
+	if err := api.request(ctx, http.MethodPost, "/rooms/"+joinCode+"/participants", input, &enrollment); err != nil {
+		if !strings.Contains(err.Error(), "404") || api.request(ctx, http.MethodPost, "/v1/rooms/"+joinCode+"/participants", input, &enrollment) != nil {
+			return Enrollment{}, err
+		}
 	}
 	if enrollment.Participant.ID == "" || enrollment.Token == "" {
 		return Enrollment{}, fmt.Errorf("coordinator returned incomplete enrollment")
@@ -46,8 +55,10 @@ func Join(ctx context.Context, baseURL, joinCode, name, agent string) (Enrollmen
 // Snapshot fetches the current room projection using the participant token.
 func (a *API) Snapshot(ctx context.Context, roomID string) (domain.Snapshot, error) {
 	var snapshot domain.Snapshot
-	if err := a.request(ctx, http.MethodGet, "/v1/rooms/"+roomID+"/snapshot", nil, &snapshot); err != nil {
-		return domain.Snapshot{}, err
+	if err := a.request(ctx, http.MethodGet, "/rooms/"+roomID+"/snapshot", nil, &snapshot); err != nil {
+		if !strings.Contains(err.Error(), "404") || a.request(ctx, http.MethodGet, "/v1/rooms/"+roomID+"/snapshot", nil, &snapshot) != nil {
+			return domain.Snapshot{}, err
+		}
 	}
 	return snapshot, nil
 }
@@ -55,14 +66,14 @@ func (a *API) Snapshot(ctx context.Context, roomID string) (domain.Snapshot, err
 // PublishIntent updates the current participant's declared work scope.
 func (a *API) PublishIntent(ctx context.Context, roomID, task, objective string, paths []string, status domain.IntentStatus) (domain.Intent, error) {
 	var intent domain.Intent
-	err := a.request(ctx, http.MethodPost, "/v1/rooms/"+roomID+"/intents", map[string]any{"task": task, "objective": objective, "expectedPaths": paths, "status": status}, &intent)
+	err := a.request(ctx, http.MethodPut, "/rooms/"+roomID+"/intents", map[string]any{"task": task, "objective": objective, "expectedPaths": paths, "status": status}, &intent)
 	return intent, err
 }
 
 // PublishDecision adds a room-wide technical or product decision.
 func (a *API) PublishDecision(ctx context.Context, roomID, title, body string) (domain.Decision, error) {
 	var decision domain.Decision
-	err := a.request(ctx, http.MethodPost, "/v1/rooms/"+roomID+"/decisions", map[string]string{"title": title, "body": body}, &decision)
+	err := a.request(ctx, http.MethodPut, "/rooms/"+roomID+"/decisions", map[string]string{"title": title, "body": body}, &decision)
 	return decision, err
 }
 

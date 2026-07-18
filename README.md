@@ -2,19 +2,19 @@
 
 Syncroom is a CLI-first coordination layer for developers using different coding agents on separate laptops. It does not run or inspect the agents: participants attach existing Git clones to one room, declare their intended work, share decisions, and receive generated local context files.
 
-The current MVP supports a shared coordinator, join-code enrollment, bearer-token participant access, intent and decision synchronization, declared-path overlap detection, and generated agent-readable context. Checkpoint publishing, disposable-worktree integration, and failure routing are planned next.
+The current MVP stores shared room state in Convex, so laptops do not need to share a LAN or leave a coordinator process running. It supports join-code enrollment, bearer-token participant access, intent and decision synchronization, declared-path overlap detection, and generated agent-readable context. Checkpoint publishing, disposable-worktree integration, and failure routing are planned next.
 
 ## Requirements
 
 - Go 1.26 or newer
 - Git repository with an `origin` remote for each participant clone
-- Two laptops on the same LAN for the local demo
+- A Convex account and hosted Convex deployment
 
 ## Two-laptop demo
 
 Use this repository as the shared demo repository, or replace its URL with another shared Git remote.
 
-### Laptop A: run the coordinator
+### Create a hosted room
 
 ```bash
 git clone https://github.com/Par-python/sync-ai-multiplayer.git
@@ -22,25 +22,13 @@ cd sync-ai-multiplayer
 go build -o ./bin/syncroom ./cmd/syncroom
 
 ./bin/syncroom room create \
-  --data ./syncroom.db \
+  --server https://next-mandrill-528.convex.site \
   --name "Syncroom Two-Laptop Demo" \
   --repo "https://github.com/Par-python/sync-ai-multiplayer.git" \
   --default-branch main
 ```
 
-Copy the printed join code. Find Laptop A's LAN address:
-
-```bash
-ipconfig getifaddr en0
-```
-
-Start the coordinator and keep this terminal running:
-
-```bash
-./bin/syncroom serve --data ./syncroom.db --listen :8080
-```
-
-Participants use `http://LAPTOP_A_IP:8080` as the server URL. Allow incoming connections if macOS asks.
+Copy the printed join code. The Convex site URL is shared over the internet, so neither laptop hosts a server or opens a firewall port.
 
 ### Laptop A: attach as Codex
 
@@ -51,7 +39,7 @@ cd sync-ai-multiplayer
 git switch -c syncroom/alexi/auth
 
 ./bin/syncroom attach \
-  --server http://LAPTOP_A_IP:8080 \
+  --server https://next-mandrill-528.convex.site \
   --room YOUR_JOIN_CODE \
   --name Alexi \
   --agent Codex
@@ -84,7 +72,7 @@ Attach to Laptop A's room, then leave the watcher running:
 
 ```bash
 ./bin/syncroom attach \
-  --server http://LAPTOP_A_IP:8080 \
+  --server https://next-mandrill-528.convex.site \
   --room YOUR_JOIN_CODE \
   --name Abby \
   --agent "Claude Code"
