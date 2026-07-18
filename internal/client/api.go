@@ -77,6 +77,10 @@ func (a *API) PublishDecision(ctx context.Context, roomID, title, body string) (
 	return decision, err
 }
 
+func (a *API) PublishActivity(ctx context.Context, roomID, branch, head string, dirty bool, changedPaths []string) error {
+	return a.request(ctx, http.MethodPut, "/rooms/"+roomID+"/activity", map[string]any{"branch": branch, "head": head, "dirty": dirty, "changedPaths": changedPaths}, nil)
+}
+
 func (a *API) request(ctx context.Context, method, path string, in, out any) error {
 	var body io.Reader
 	if in != nil {

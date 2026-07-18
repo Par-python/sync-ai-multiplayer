@@ -45,12 +45,16 @@ type Room struct {
 // SHA-256 of the raw 32-byte bearer token; the raw token is returned exactly
 // once, at enrollment.
 type Participant struct {
-	ID        string    `json:"id"`
-	RoomID    string    `json:"roomId"`
-	Name      string    `json:"name"`
-	Agent     string    `json:"agent"`
-	TokenHash string    `json:"-"`
-	JoinedAt  time.Time `json:"joinedAt"`
+	ID           string    `json:"id"`
+	RoomID       string    `json:"roomId"`
+	Name         string    `json:"name"`
+	Agent        string    `json:"agent"`
+	TokenHash    string    `json:"-"`
+	JoinedAt     time.Time `json:"joinedAt"`
+	Branch       string    `json:"branch,omitempty"`
+	Head         string    `json:"head,omitempty"`
+	Dirty        bool      `json:"dirty"`
+	ChangedPaths []string  `json:"changedPaths,omitempty"`
 }
 
 // Intent is a participant's declared scope for a task. ExpectedPaths are

@@ -35,6 +35,11 @@ func Write(root, participantID string, snapshot domain.Snapshot) error {
 		}
 		context.WriteString("\n")
 	}
+	for _, participant := range snapshot.Participants {
+		if participant.ID != participantID && participant.Branch != "" {
+			fmt.Fprintf(&context, "- %s branch: %s (%s)\n", participant.Name, participant.Branch, participant.Head)
+		}
+	}
 	if len(snapshot.Intents) == 0 {
 		context.WriteString("- No published teammate activity yet.\n")
 	}
